@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2016 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+<link rel="import" href="/perf_insights/function_handle.html">
+<link rel="import" href="/tracing/model/memory_allocator_dump.html">
+<link rel="import" href="/tracing/value/value.html">
+
+<script>
+'use strict';
+
+tr.exportTo('pi.m', function() {
+  var _ALLOCATORS = ['blink_gc', 'cc', 'discardable', 'gpu',
+                     'gpumemorybuffer', 'java_heap', 'malloc',
+                     'partition_alloc', 'skia', 'v8', 'tracing'];
+  function getAllocatorSizes(processDump, model) {
+    var sizes = {};
+
+    for (var name of _ALLOCATORS) {
+      var allocatorDump = processDump.getMemoryAllocatorDumpByFullName(name);
+      if (allocatorDump === undefined)
+        continue;
+      allocatorDump.aggregateNumericsRecursively(model);
+      var size = allocatorDump.numerics[tr.model.MemoryAllocatorDump.SIZE_NUMERIC_NAME];
+      if (size === undefined)
+        continue;
+      sizes[name] = size.value;
+    }
+    return sizes;
+  }
+
+  function peakResidentSizesMapFunction(result, model) {
+    var peaks = {};
+    for (var process of model.getAllProcesses()) {
+      if (process.name !== 'Renderer') {
+        continue;
+      }
+
+      var peak = {
+        allocators: {},
+        pid: process.pid,
+        name: process.name,
+        label: process.labels.join(', '),
+        size: -1,
+        timestamp: 0
+      };
+
+      process.sortMemoryDumps();
+      for (var processDump of process.memoryDumps) {
+        if (processDump.totals === undefined) {
+          continue;
+        }
+        var peakResidentBytes = processDump.totals.peakResidentBytes;
+        if (peak.size < peakResidentBytes) {
+          peak.allocators = getAllocatorSizes(processDump, model);
+          peak.size = peakResidentBytes;
+          peak.timestamp = processDump.start;
+        }
+      }
+
+      if (peak.size > 0) {
+        peaks[process.pid] = peak;
+      }
+    }
+
+    result.addPair('peak_resident_sizes', {
+      'peaks': peaks});
+  }
+
+  pi.FunctionRegistry.register(peakResidentSizesMapFunction);
+
+  return {
+    peakResidentSizesMapFunctionForTest: peakResidentSizesMapFunction,
+  };
+});
+
+</script>
