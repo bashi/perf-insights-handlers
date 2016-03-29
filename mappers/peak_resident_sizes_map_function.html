@@ -22,8 +22,8 @@ tr.exportTo('pi.m', function() {
       var allocatorDump = processDump.getMemoryAllocatorDumpByFullName(name);
       if (allocatorDump === undefined)
         continue;
-      allocatorDump.aggregateNumericsRecursively(model);
-      var size = allocatorDump.numerics[tr.model.MemoryAllocatorDump.SIZE_NUMERIC_NAME];
+      var size = allocatorDump.numerics[
+        tr.model.MemoryAllocatorDump.EFFECTIVE_SIZE_NUMERIC_NAME];
       if (size === undefined)
         continue;
       sizes[name] = size.value;
@@ -33,6 +33,8 @@ tr.exportTo('pi.m', function() {
 
   function peakResidentSizesMapFunction(result, model) {
     var peaks = {};
+    model.sortMemoryDumps();
+    model.finalizeMemoryGraphs();
     for (var process of model.getAllProcesses()) {
       if (process.name !== 'Renderer') {
         continue;
@@ -40,8 +42,6 @@ tr.exportTo('pi.m', function() {
 
       var peak = {
         allocators: {},
-        pid: process.pid,
-        name: process.name,
         label: process.labels.join(', '),
         size: -1,
         timestamp: 0
@@ -65,8 +65,8 @@ tr.exportTo('pi.m', function() {
       }
     }
 
-    result.addPair('peak_resident_sizes', {
-      'peaks': peaks});
+    var key = model.canonicalUrlThatCreatedThisTrace;
+    result.addPair(key, peak);
   }
 
   pi.FunctionRegistry.register(peakResidentSizesMapFunction);
