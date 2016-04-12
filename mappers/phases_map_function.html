@@ -12,6 +12,9 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('pi.m', function() {
+  var _PHASES = [
+    "before_navigation", "interactive", "complete", "scrolled", "idle", "gc"
+  ];
   var _ALLOCATORS = ['blink_gc', 'cc', 'discardable', 'gpu',
                      'gpumemorybuffer', 'java_heap', 'malloc',
                      'partition_alloc', 'skia', 'v8', 'tracing'];
@@ -31,8 +34,8 @@ tr.exportTo('pi.m', function() {
     return sizes;
   }
 
-  function peakResidentSizesMapFunction(result, model) {
-    var peaks = {};
+  function memoryUsagePerPhaseMapFunction(result, model) {
+    var phases = {};
     model.sortMemoryDumps();
     model.finalizeMemoryGraphs();
     for (var process of model.getAllProcesses()) {
@@ -40,40 +43,43 @@ tr.exportTo('pi.m', function() {
         continue;
       }
 
-      var peak = {
-        allocators: {},
-        label: process.labels.join(', '),
-        size: -1,
-        timestamp: 0
-      };
-
-      process.sortMemoryDumps();
-      for (var processDump of process.memoryDumps) {
-        if (processDump.totals === undefined) {
+      if (process.memoryDumps.length != _PHASES.length) {
+        result.addFailure('Unexpected number of memory dumps: ' +
+          process.memoryDumps.length);
           continue;
-        }
-        var peakResidentBytes = processDump.totals.peakResidentBytes;
-        if (peak.size < peakResidentBytes) {
-          peak.allocators = getAllocatorSizes(processDump, model);
-          peak.size = peakResidentBytes;
-          peak.timestamp = processDump.start;
-        }
       }
 
-      if (peak.size > 0) {
-        peaks[process.pid] = peak;
+      var maxPeak = 0, maxPeakPhase = '';
+      process.sortMemoryDumps();
+      for (var i = 0; i < _PHASES.length; i++) {
+        var processDump = process.memoryDumps[i];
+        var phaseName = _PHASES[i];
+        var peak = processDump.totals.peakResidentBytes;
+        var phase = {};
+        phase.allocators = getAllocatorSizes(processDump, model);
+        phase.peakResidentBytes = peak;
+        phase.residentBytes = processDump.totals.residentBytes;
+        phase.timestamp = processDump.start;
+        if (peak > maxPeak) {
+          maxPeak = peak;
+          maxPeakPhase = phaseName;
+        }
+        phases[phaseName] = phase;
       }
     }
 
+    var values = {
+      peak_phase: maxPeakPhase,
+      phases: phases,
+    }
     var key = model.canonicalUrl;
-    result.addPair(key, peak);
+    result.addPair(key, values);
   }
 
-  pi.FunctionRegistry.register(peakResidentSizesMapFunction);
+  pi.FunctionRegistry.register(memoryUsagePerPhaseMapFunction);
 
   return {
-    peakResidentSizesMapFunctionForTest: peakResidentSizesMapFunction,
+    memoryUsagePerPhaseMapFunctionForTest: memoryUsagePerPhaseMapFunction,
   };
 });
-
 </script>
